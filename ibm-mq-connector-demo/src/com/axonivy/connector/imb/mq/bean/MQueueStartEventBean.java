@@ -3,6 +3,7 @@ package com.axonivy.connector.imb.mq.bean;
 import org.apache.commons.lang3.StringUtils;
 
 import com.axonivy.connector.imb.mq.service.ProcessMessageHandler;
+import com.axonivy.connector.model.PropertyManager;
 import com.axonivy.connector.service.MQueueListener;
 
 import ch.ivyteam.api.PublicAPI;
@@ -17,25 +18,35 @@ import ch.ivyteam.ivy.service.ServiceException;
 public class MQueueStartEventBean extends AbstractProcessStartEventBean {
 	private static final String QUEUE_NAME_FIELD = "queueNameField";
 	private boolean isPolling = false;
-	private boolean isSkipInitializing = true;
+	private boolean isSkipInitializing;
 	private String queueName = "";
-	private MQueueListener mqListener;
 	private IProcessStartEventBeanRuntime eventRuntime;
+	private MQueueListener mqListener;	
 
 	public MQueueStartEventBean() {
 		super("Run IBM MQ  StartEventBean", "Subscribe to MQ Queue");
 	}
 
 	@Override
-	public void initialize(IProcessStartEventBeanRuntime eventRuntime, ProgramConfig programConfig) {
+	public void initialize(IProcessStartEventBeanRuntime eventRuntime, ProgramConfig programConfig) {		
 		super.initialize(eventRuntime, programConfig);
+		eventRuntime.poll().disable();		
 		this.eventRuntime = eventRuntime;
 		queueName = getQueueName();
+		this.isSkipInitializing = PropertyManager.getSkipListener();
 		mqListener = new MQueueListener(queueName, new ProcessMessageHandler());
-
+		
+		eventRuntime.threads().boundToEventLifecycle(mqListener::receive);
+		
 		Ivy.log().debug("MQueueStartEventBean::initialize");
 	}
 
+	@Override
+	public synchronized  void start() throws ServiceException {
+		mqListener.start();		
+		super.start();
+		Ivy.log().info("Started IBM MQ StartEventBean.");
+	}
 
 	@Override
 	@PublicAPI
@@ -52,10 +63,9 @@ public class MQueueStartEventBean extends AbstractProcessStartEventBean {
 		}
 		isPolling = true;
 		eventRuntime.threads().boundToEventLifecycle(() -> {
-			mqListener.start();
 			mqListener.receive();
 		});
-
+		
 	}
 
 	protected String getQueueName() {

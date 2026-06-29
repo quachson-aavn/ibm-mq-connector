@@ -12,6 +12,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.dataformat.xml.XmlMapper;
 
 import ch.ivyteam.ivy.environment.Ivy;
+import ch.ivyteam.ivy.security.exec.Sudo;
 
 public class ProcessMessageService {
 	private static final ObjectMapper JSON_MAPPER = new ObjectMapper();
@@ -34,8 +35,9 @@ public class ProcessMessageService {
 		}
 		processMessage(payload, messageType);
 	}
-	
+
 	private TaskDetail processMessage(String payload, String messageType) {
+		Ivy.log().info("===ProcessMessageService::processMessage...");
 		LoanApplication loanApplication = getLoanApplication(payload, messageType);
 		if (loanApplication == null) {
 			return null;
@@ -47,9 +49,15 @@ public class ProcessMessageService {
 
 		Ivy.log().info("=== call signal Task: " + SIGNAL_CODE + ", auto approval: " + taskDetail.isAutoApproval());
 		Ivy.log().info("TaskDetail: " + taskDetail);
-		Ivy.wf().signals().create().data(taskDetail).send(SIGNAL_CODE);
+		sendReceivedMessageSignal(taskDetail);
 
 		return taskDetail;
+	}
+
+	private void sendReceivedMessageSignal(final TaskDetail taskDetail) {
+		Sudo.run(() -> {
+			Ivy.wf().signals().create().data(taskDetail).send(SIGNAL_CODE);
+		});
 	}
 
 	private static LoanApplication getLoanApplication(String payload, String messageTypeRequest) {
@@ -57,8 +65,8 @@ public class ProcessMessageService {
 		if (messageType == null) {
 			return null;
 		}
-		
-		if (!messageType.equalsIgnoreCase(messageTypeRequest)) {			
+
+		if (messageTypeRequest != null && !messageType.equalsIgnoreCase(messageTypeRequest)) {
 			return null;
 		}
 
@@ -71,7 +79,8 @@ public class ProcessMessageService {
 			Ivy.log().error("Failed to parse mapper: ", e);
 		}
 		if (!validateLoanApplication(loanApplication)) {
-			Ivy.log().error("Invalid loan application: " + loanApplication);
+			Ivy.log().error("Invalid loan application:request: {0}, messageType: {1}, payload: {2} ",
+					messageTypeRequest, messageType, payload);
 			return null;
 		}
 
